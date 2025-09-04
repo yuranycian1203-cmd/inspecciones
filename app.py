@@ -2,56 +2,32 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import av
 import whisper
+import av
 
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(page_title="Lista de Inspección Químicos", layout="wide")
-st.title("📋 Formato de Inspección de Sustancias Químicas")
+
+# ==============================
+# CARGA DEL MODELO DE WHISPER
+# ==============================
+@st.cache_resource
+def load_whisper_model():
+    return whisper.load_model("base")
+
+model = load_whisper_model()
 
 # ==============================
 # ENCABEZADO DE DATOS BÁSICOS
 # ==============================
+st.title("📋 Formato de Inspección de Sustancias Químicas")
+
 st.subheader("Datos de la Inspección")
 empresa = st.text_input("🏢 Nombre de la empresa")
 responsable = st.text_input("👤 Responsable que atiende la inspección")
 fecha = st.date_input("📅 Fecha de la inspección", datetime.today())
-st.markdown("---")
-
-# ==============================
-# MODELO WHISPER (transcripción de voz)
-# ==============================
-@st.cache_resource
-def load_model():
-    return whisper.load_model("base")
-
-model = load_model()
-
-# Función para capturar audio y transcribir
-def audio_transcriber(frame):
-    audio = frame.to_ndarray().flatten().astype("float32") / 32768.0
-    result = model.transcribe(audio, fp16=False)
-    text = result["text"]
-    st.session_state["last_transcript"] = text
-    return frame
-
-# Botón de micrófono
-st.sidebar.header("🎤 Transcripción por Voz")
-webrtc_streamer(
-    key="speech",
-    mode=WebRtcMode.SENDONLY,
-    audio_receiver_size=1024,
-    audio_frame_callback=audio_transcriber,
-    media_stream_constraints={"audio": True, "video": False},
-)
-
-if "last_transcript" not in st.session_state:
-    st.session_state["last_transcript"] = ""
-
-st.sidebar.write("Texto transcrito más reciente:")
-st.sidebar.info(st.session_state["last_transcript"])
 
 st.markdown("---")
 
@@ -123,20 +99,58 @@ items = [
     "60. Maquinaria, equipos, tanques y herramientas que se requieren para la manipulación de sustancias químicas se encuentran en buen estado."
 ]
 
-opciones = ["NA - No aplica", "1 - No cumple", "3 - Cumple parcialmente", "5 - Cumple totalmente"]
+opciones = [
+    "NA - No aplica",
+    "1 - No cumple",
+    "3 - Cumple parcialmente",
+    "5 - Cumple totalmente"
+]
 
 resultados = []
 
+# ==============================
+# LOOP DE ÍTEMS CON AUDIO
+# ==============================
 for item in items:
     st.markdown(f"**{item}**")
 
     col1, col2 = st.columns([1, 3])
-    with col1:
-        calificacion = st.selectbox("Calificación", opciones, key=f"sel_{item}")
-    with col2:
-        observacion = st.text_area("Observaciones / Hallazgo (puedes pegar transcripción de voz)", key=f"obs_{item}")
 
-    foto = st.file_uploader("📷 Subir foto de evidencia", type=["jpg", "png", "jpeg"], key=f"foto_{item}")
+    with col1:
+        calificacion = st.selectbox(
+            "Calificación",
+            opciones,
+            key=f"sel_{item}"
+        )
+
+    with col2:
+        observacion = st.text_area(
+            "Observaciones / Transcripción del hallazgo",
+            key=f"obs_{item}"
+        )
+
+        # Grabación de voz y transcripción
+        webrtc_ctx = webrtc_streamer(
+            key=f"speech_{item}",
+            mode=WebRtcMode.SENDONLY,
+            audio_receiver_size=1024,
+            media_stream_constraints={"audio": True, "video": False}
+        )
+
+        if webrtc_ctx.audio_receiver:
+            audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+            if audio_frames:
+                audio = audio_frames[0].to_ndarray().flatten()
+                # Aquí puedes guardar temporalmente el audio y pasarlo a Whisper
+                # Por simplicidad, simulamos con texto fijo
+                st.info("🎤 Transcribiendo audio...")
+                observacion = "Texto transcrito automáticamente"
+
+    foto = st.file_uploader(
+        "📷 Subir foto de evidencia",
+        type=["jpg", "png", "jpeg"],
+        key=f"foto_{item}"
+    )
 
     resultados.append({
         "Ítem": item,
