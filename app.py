@@ -2,23 +2,56 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import speech_recognition as sr
-import tempfile
+import av
+import whisper
 
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(page_title="Lista de Inspección Químicos", layout="wide")
+st.title("📋 Formato de Inspección de Sustancias Químicas")
 
 # ==============================
 # ENCABEZADO DE DATOS BÁSICOS
 # ==============================
-st.title("📋 Formato de Inspección de Sustancias Químicas")
-
 st.subheader("Datos de la Inspección")
 empresa = st.text_input("🏢 Nombre de la empresa")
 responsable = st.text_input("👤 Responsable que atiende la inspección")
 fecha = st.date_input("📅 Fecha de la inspección", datetime.today())
+st.markdown("---")
+
+# ==============================
+# MODELO WHISPER (transcripción de voz)
+# ==============================
+@st.cache_resource
+def load_model():
+    return whisper.load_model("base")
+
+model = load_model()
+
+# Función para capturar audio y transcribir
+def audio_transcriber(frame):
+    audio = frame.to_ndarray().flatten().astype("float32") / 32768.0
+    result = model.transcribe(audio, fp16=False)
+    text = result["text"]
+    st.session_state["last_transcript"] = text
+    return frame
+
+# Botón de micrófono
+st.sidebar.header("🎤 Transcripción por Voz")
+webrtc_streamer(
+    key="speech",
+    mode=WebRtcMode.SENDONLY,
+    audio_receiver_size=1024,
+    audio_frame_callback=audio_transcriber,
+    media_stream_constraints={"audio": True, "video": False},
+)
+
+if "last_transcript" not in st.session_state:
+    st.session_state["last_transcript"] = ""
+
+st.sidebar.write("Texto transcrito más reciente:")
+st.sidebar.info(st.session_state["last_transcript"])
 
 st.markdown("---")
 
@@ -90,73 +123,25 @@ items = [
     "60. Maquinaria, equipos, tanques y herramientas que se requieren para la manipulación de sustancias químicas se encuentran en buen estado."
 ]
 
-opciones = [
-    "NA - No aplica",
-    "1 - No cumple",
-    "3 - Cumple parcialmente",
-    "5 - Cumple totalmente"
-]
+opciones = ["NA - No aplica", "1 - No cumple", "3 - Cumple parcialmente", "5 - Cumple totalmente"]
 
 resultados = []
-
-# Función para transcribir
-def transcribir_audio(audio_path):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_path) as source:
-        audio = recognizer.record(source)
-        return recognizer.recognize_google(audio, language="es-CO")
 
 for item in items:
     st.markdown(f"**{item}**")
 
     col1, col2 = st.columns([1, 3])
-
     with col1:
-        calificacion = st.selectbox(
-            "Calificación",
-            opciones,
-            key=f"sel_{item}"
-        )
-
+        calificacion = st.selectbox("Calificación", opciones, key=f"sel_{item}")
     with col2:
-        # Observaciones con opción de dictado
-        observacion = st.text_area(
-            "Observaciones / Transcripción del hallazgo",
-            key=f"obs_{item}"
-        )
+        observacion = st.text_area("Observaciones / Hallazgo (puedes pegar transcripción de voz)", key=f"obs_{item}")
 
-        st.write("🎤 Opción de dictado por voz")
-        webrtc_ctx = webrtc_streamer(
-            key=f"audio_{item}",
-            mode=WebRtcMode.SENDONLY,
-            audio_receiver_size=1024,
-            media_stream_constraints={"audio": True, "video": False},
-        )
-
-        if webrtc_ctx.audio_receiver:
-            audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
-            if audio_frames:
-                frame = audio_frames[0]
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
-                    tmpfile.write(frame.to_ndarray().tobytes())
-                    tmpfile_path = tmpfile.name
-                try:
-                    texto = transcribir_audio(tmpfile_path)
-                    st.session_state[f"obs_{item}"] = texto
-                    st.success(f"📝 Transcripción: {texto}")
-                except:
-                    st.warning("⚠️ No se pudo transcribir el audio.")
-
-    foto = st.file_uploader(
-        "📷 Subir foto de evidencia",
-        type=["jpg", "png", "jpeg"],
-        key=f"foto_{item}"
-    )
+    foto = st.file_uploader("📷 Subir foto de evidencia", type=["jpg", "png", "jpeg"], key=f"foto_{item}")
 
     resultados.append({
         "Ítem": item,
         "Calificación": calificacion,
-        "Observación": st.session_state.get(f"obs_{item}", observacion),
+        "Observación": observacion,
         "Foto": foto.name if foto else ""
     })
 
