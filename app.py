@@ -1,23 +1,11 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import whisper
-import av
 
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(page_title="Lista de Inspección Químicos", layout="wide")
-
-# ==============================
-# CARGA DEL MODELO DE WHISPER
-# ==============================
-@st.cache_resource
-def load_whisper_model():
-    return whisper.load_model("base")
-
-model = load_whisper_model()
 
 # ==============================
 # ENCABEZADO DE DATOS BÁSICOS
@@ -108,9 +96,6 @@ opciones = [
 
 resultados = []
 
-# ==============================
-# LOOP DE ÍTEMS CON AUDIO
-# ==============================
 for item in items:
     st.markdown(f"**{item}**")
 
@@ -128,23 +113,6 @@ for item in items:
             "Observaciones / Transcripción del hallazgo",
             key=f"obs_{item}"
         )
-
-        # Grabación de voz y transcripción
-        webrtc_ctx = webrtc_streamer(
-            key=f"speech_{item}",
-            mode=WebRtcMode.SENDONLY,
-            audio_receiver_size=1024,
-            media_stream_constraints={"audio": True, "video": False}
-        )
-
-        if webrtc_ctx.audio_receiver:
-            audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
-            if audio_frames:
-                audio = audio_frames[0].to_ndarray().flatten()
-                # Aquí puedes guardar temporalmente el audio y pasarlo a Whisper
-                # Por simplicidad, simulamos con texto fijo
-                st.info("🎤 Transcribiendo audio...")
-                observacion = "Texto transcrito automáticamente"
 
     foto = st.file_uploader(
         "📷 Subir foto de evidencia",
