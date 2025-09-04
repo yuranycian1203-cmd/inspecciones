@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
+import speech_recognition as sr
+import tempfile
 
 # ==============================
 # CONFIGURACIÓN INICIAL
@@ -96,6 +99,13 @@ opciones = [
 
 resultados = []
 
+# Función para transcribir
+def transcribir_audio(audio_path):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(audio_path) as source:
+        audio = recognizer.record(source)
+        return recognizer.recognize_google(audio, language="es-CO")
+
 for item in items:
     st.markdown(f"**{item}**")
 
@@ -109,10 +119,33 @@ for item in items:
         )
 
     with col2:
+        # Observaciones con opción de dictado
         observacion = st.text_area(
             "Observaciones / Transcripción del hallazgo",
             key=f"obs_{item}"
         )
+
+        st.write("🎤 Opción de dictado por voz")
+        webrtc_ctx = webrtc_streamer(
+            key=f"audio_{item}",
+            mode=WebRtcMode.SENDONLY,
+            audio_receiver_size=1024,
+            media_stream_constraints={"audio": True, "video": False},
+        )
+
+        if webrtc_ctx.audio_receiver:
+            audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+            if audio_frames:
+                frame = audio_frames[0]
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
+                    tmpfile.write(frame.to_ndarray().tobytes())
+                    tmpfile_path = tmpfile.name
+                try:
+                    texto = transcribir_audio(tmpfile_path)
+                    st.session_state[f"obs_{item}"] = texto
+                    st.success(f"📝 Transcripción: {texto}")
+                except:
+                    st.warning("⚠️ No se pudo transcribir el audio.")
 
     foto = st.file_uploader(
         "📷 Subir foto de evidencia",
@@ -123,7 +156,7 @@ for item in items:
     resultados.append({
         "Ítem": item,
         "Calificación": calificacion,
-        "Observación": observacion,
+        "Observación": st.session_state.get(f"obs_{item}", observacion),
         "Foto": foto.name if foto else ""
     })
 
